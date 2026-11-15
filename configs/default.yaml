@@ -1,0 +1,103 @@
+# VVERTIGO 第一版配置：离线优先、单人全身跟随、成片质量优先
+project:
+  name: vvertigo
+  mode: single_target
+  quality_priority: true
+
+input:
+  video: seg_002.mp4
+  limit: 0                      # 调试用，0 = 全片
+  preserve_source_timestamps: true
+
+output:
+  dir: outputs/seg_002
+
+detection:
+  weights: work/models/yolo11m.pt
+  imgsz: 1280
+  confidence: 0.25
+  iou: 0.6
+  device: 0
+  classes: [0]                  # 只检测 person
+
+tracking:
+  backend: botsort
+  tracker_cfg: configs/trackers/botsort_vvertigo.yaml   # bytetrack_vvertigo.yaml / botsort_gmc_off.yaml
+  reset_on_cut: true
+  # ultralytics 的 with_reid 用的是检测器自带特征，不是独立 ReID。
+  # 本项目的跨镜头身份由 identity/ 离线处理，保持这里关闭。
+
+pose:
+  enabled: false                # 满幅裁切下纵向无需关键点，见 camera/framing.py
+  use_for_framing: false
+
+identity:
+  embedder: resnet18            # resnet18 / hsv
+  sample_every: 4               # 每 N 帧取一次外观特征
+  min_track_frames: 24          # 短于此的局部轨迹不参与身份聚类
+  min_track_height: 0.083       # <=1 = 占源高比例（1080p 的 90px）；>1 = 像素
+  appearance_thresh: 0.0        # 0 = 自动标定
+  strong_appearance: 0.72
+  motion_gate: 2.2              # 位置预测允许的偏差（以身高为单位）
+  new_identity_min_frames: 30
+  body_min_ref: 0.64            # 轨迹内部清洗：与身份基准人体相似度低于此值的帧剔除
+  sample_frames: 400            # 标定用的帧数上限
+  person_analysis:              # InsightFace 2.1：人体 ReID + 人脸（CPU 可用）
+    enabled: true
+    name: cheetah_s             # cheetah_l 更准但更慢
+    every: 30                   # 每 N 帧一次（60fps 下 2 FPS 足够）
+  face:
+    enabled: true
+    sample_every: 4             # 人脸采样频率（识别 2-5 FPS 足够）
+    pos: 0                      # 0 = 自动标定
+    neg: 0
+
+target:
+  select: auto                  # auto / box / point / face / global
+  global_id: 0                  # 显式指定全局身份（配合 tools/preview_identities.py）
+  face_image: ""                # 参考人脸图（112x112 或任意人脸裁剪），跨运行锁定同一个人
+  at_frame: -1                  # point/box 选择时的参考帧，-1 = 不限
+  box: []                       # [x1, y1, x2, y2]
+  point: []                     # [x, y]
+  auto_pick: largest            # largest / center
+
+camera:
+  aspect: "9:16"
+  use_full_height: true         # 关键：纵向上限用满，等比例裁切不再额外缩放
+  crop_width: 0                 # 0 = 由 aspect 与源高自动算；显式指定可压低放大倍数
+  zoom: 1.0                     # 1.0 = 最大裁切（最清晰）；>1 会要求更高的源分辨率
+  anchor_y: 0.5
+  max_speed: 900                # 像素/秒
+  max_accel: 3200               # 像素/秒²
+  predict_seconds: 1.2          # 目标短暂丢失时按速度外推的时长
+  hold_after_seconds: 1.2       # 超过此时长改为冻结
+  lost_after_seconds: 8.0       # 判定 LOST（仍不切目标）
+  recover_seconds: 0.8          # 重新捕获后的匀速过渡
+  # 取景路径：keyframe = 全帧点位 -> 关键帧删减 -> 样条（AE 式，推荐）
+  #           one_euro = 旧的因果滤波（对照用，实测会放大抖动）
+  path_mode: keyframe
+  preset: smooth                # follow(跟得紧) / smooth(默认) / steady(最稳)
+  # 下面三项留空即用预设值，写数字可只改一项做对照
+  smooth_sigma:                 # 零相位高斯，单位帧；越大越稳（16 ≈ 0.27s）
+  simplify_eps:                 # 关键帧容差(px)：允许样条偏离原始点位多少
+  time_weight:                 # RDP 时间轴权重(px/帧)
+  hold_ramp_s: 0.25             # 遮挡结束后多少秒过渡回跟踪
+  soft_limit: true              # 非因果安全网，只在异常超限处生效
+  one_euro:
+    min_cutoff: 1.1
+    beta: 0.008
+    d_cutoff: 1.0
+  edge_margin: 8                # 裁切边框留白，避免贴边抖动
+
+scene:
+  enabled: true
+  reset_local_tracker_on_cut: true
+
+export:
+  width: 1080
+  height: 1920
+  fps: source
+  codec: h264_nvenc             # 无 NVENC 时自动退回 libx264
+  quality: 19                   # nvenc 的 cq / x264 的 crf
+  scale_flags: lanczos
+  preserve_audio: true

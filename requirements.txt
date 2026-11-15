@@ -1,0 +1,15 @@
+# VVERTIGO Track — 运行依赖
+#
+# torch 请按自己的 CUDA 版本单独装，例：
+#   py -3.12 -m pip install torch --index-url https://download.pytorch.org/whl/cu124
+#
+# 另外需要系统里能直接调用 ffmpeg / ffprobe（用于解码、抽帧、编码）。
+
+ultralytics>=8.3.0
+opencv-python>=4.10.0
+numpy>=1.26.0
+scipy>=1.13.0
+
+# 可选：SFace 走 GPU（--face-gpu）。默认不启用，因为和 torch 抢 CUDA context
+# 后反而更慢。需要先装 onnxruntime-gpu 1.20.x（对应 CUDA 12）。
+# onnxruntime-gpu==1.20.2
